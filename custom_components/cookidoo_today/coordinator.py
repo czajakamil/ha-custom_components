@@ -1,39 +1,28 @@
 from __future__ import annotations
 
-import logging
-from datetime import timedelta
-import aiohttp
+from typing import Any
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import CookidooTodayApi
-from .const import DOMAIN
-
-_LOGGER = logging.getLogger(__name__)
+from .const import DOMAIN, SCAN_INTERVAL, CannotConnect, InvalidResponse
 
 
-class CookidooTodayCoordinator(DataUpdateCoordinator[dict]):
-    def __init__(
-        self,
-        hass: HomeAssistant,
-        api: CookidooTodayApi,
-        update_interval: timedelta,
-    ) -> None:
+class CookidooTodayCoordinator(DataUpdateCoordinator[dict[str, Any]]):
+    def __init__(self, hass: HomeAssistant, api: CookidooTodayApi, entry: ConfigEntry) -> None:
         super().__init__(
-            hass,
-            _LOGGER,
+            hass=hass,
+            logger=__import__("logging").getLogger(__name__),
             name=DOMAIN,
-            update_interval=update_interval,
+            update_interval=SCAN_INTERVAL,
         )
         self.api = api
+        self.entry = entry
 
-    async def _async_update_data(self) -> dict:
+    async def _async_update_data(self) -> dict[str, Any]:
         try:
-            today = await self.api.get_today()
-            week = await self.api.get_week()
-            return {"today": today, "week": week}
-        except aiohttp.ClientError as err:
-            raise UpdateFailed(f"API error: {err}") from err
-        except Exception as err:
-            raise UpdateFailed(f"Unexpected error: {err}") from err
+            return await self.api.async_get_today()
+        except (CannotConnect, InvalidResponse) as e:
+            raise UpdateFailed(str(e)) from e
