@@ -1,75 +1,93 @@
 from __future__ import annotations
 
-import aiohttp
+from typing import Any
+
 import voluptuous as vol
 
 from homeassistant import config_entries
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.config_entries import ConfigFlowResult, OptionsFlowWithReload
+from homeassistant.core import callback
+from homeassistant.helpers.selector import selector
 
-from .api import CookidooTodayApi
-from .const import CONF_BASE_URL, CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL, DOMAIN
+from .const import (
+    DOMAIN,
+    CONF_EMAIL,
+    CONF_PASSWORD,
+    CONF_COUNTRY,
+    CONF_REFRESH_MINUTES,
+    DEFAULT_COUNTRY,
+    DEFAULT_REFRESH_MINUTES,
+)
 
+STEP_USER_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_EMAIL): selector({"text": {"type": "email"}}),
+        vol.Required(CONF_PASSWORD): selector({"text": {"type": "password"}}),
+        vol.Optional(CONF_COUNTRY, default=DEFAULT_COUNTRY): selector({"text": {"type": "text"}}),
+        vol.Optional(CONF_REFRESH_MINUTES, default=DEFAULT_REFRESH_MINUTES): selector(
+            {
+                "number": {
+                    "min": 1,
+                    "max": 1440,
+                    "mode": "box",
+                    "unit_of_measurement": "min",
+                }
+            }
+        ),
+    }
+)
 
-async def _validate_input(hass: HomeAssistant, base_url: str) -> None:
-    session = async_get_clientsession(hass)
-    api = CookidooTodayApi(session, base_url)
-    await api.get_today()
+OPTIONS_SCHEMA = vol.Schema(
+    {
+        vol.Optional(CONF_COUNTRY, default=DEFAULT_COUNTRY): selector({"text": {"type": "text"}}),
+        vol.Optional(CONF_REFRESH_MINUTES, default=DEFAULT_REFRESH_MINUTES): selector(
+            {
+                "number": {
+                    "min": 1,
+                    "max": 1440,
+                    "mode": "box",
+                    "unit_of_measurement": "min",
+                }
+            }
+        ),
+    }
+)
 
 
 class CookidooTodayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
-    async def async_step_user(self, user_input: dict | None = None):
-        errors: dict[str, str] = {}
-
+    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if user_input is not None:
-            base_url = user_input[CONF_BASE_URL].rstrip("/")
+            return self.async_create_entry(
+                title="Cookidoo Today",
+                data={
+                    CONF_EMAIL: user_input[CONF_EMAIL],
+                    CONF_PASSWORD: user_input[CONF_PASSWORD],
+                },
+                options={
+                    CONF_COUNTRY: user_input.get(CONF_COUNTRY, DEFAULT_COUNTRY),
+                    CONF_REFRESH_MINUTES: int(
+                        user_input.get(CONF_REFRESH_MINUTES, DEFAULT_REFRESH_MINUTES)
+                    ),
+                },
+            )
 
-            await self.async_set_unique_id(base_url)
-            self._abort_if_unique_id_configured()
+        return self.async_show_form(step_id="user", data_schema=STEP_USER_SCHEMA)
 
-            try:
-                await _validate_input(self.hass, base_url)
-            except aiohttp.ClientError:
-                errors["base"] = "cannot_connect"
-            except Exception:
-                errors["base"] = "unknown"
-            else:
-                data = {CONF_BASE_URL: base_url}
-                options = {
-                    CONF_SCAN_INTERVAL: user_input.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
-                }
-                return self.async_create_entry(title="Cookidoo Today", data=data, options=options)
-
-        schema = vol.Schema(
-            {
-                vol.Required(CONF_BASE_URL): str,
-                vol.Optional(CONF_SCAN_INTERVAL, default=DEFAULT_SCAN_INTERVAL): vol.Coerce(type(DEFAULT_SCAN_INTERVAL)),
-            }
-        )
-        # Uwaga: UI i tak pokaże sensownie timedelta, ale jak wolisz sekundy,
-        # to powiedz, przerobię na int.
-        return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
-
-    async def async_step_import(self, user_input: dict):
-        return await self.async_step_user(user_input)
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: config_entries.ConfigEntry) -> config_entries.OptionsFlow:
+        return CookidooTodayOptionsFlow()
 
 
-class CookidooTodayOptionsFlowHandler(config_entries.OptionsFlow):
-    def __init__(self, entry: config_entries.ConfigEntry) -> None:
-        self.entry = entry
-
-    async def async_step_init(self, user_input: dict | None = None):
+class CookidooTodayOptionsFlow(OptionsFlowWithReload):
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+            user_input[CONF_REFRESH_MINUTES] = int(
+                user_input.get(CONF_REFRESH_MINUTES, DEFAULT_REFRESH_MINUTES)
+            )
+            return self.async_create_entry(data=user_input)
 
-        schema = vol.Schema(
-            {
-                vol.Optional(
-                    CONF_SCAN_INTERVAL,
-                    default=self.entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
-                ): vol.Coerce(type(DEFAULT_SCAN_INTERVAL)),
-            }
-        )
+        schema = self.add_suggested_values_to_schema(OPTIONS_SCHEMA, self.config_entry.options)
         return self.async_show_form(step_id="init", data_schema=schema)
