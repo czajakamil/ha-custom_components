@@ -3,19 +3,19 @@
     "step": {
       "user": {
         "title": "Cookidoo Today",
-        "description": "Connect to your Cookidoo Today add-on API.",
+        "description": "Configure the backend API connection.",
         "data": {
           "base_url": "Base URL",
-          "scan_interval": "Update interval"
+          "today_path": "Today endpoint path",
+          "verify_ssl": "Verify SSL",
+          "timeout": "Timeout (seconds)"
         }
       }
     },
     "error": {
-      "cannot_connect": "Cannot connect to the API.",
+      "cannot_connect": "Cannot connect to the backend.",
+      "invalid_response": "Backend returned invalid response.",
       "unknown": "Unexpected error."
-    },
-    "abort": {
-      "already_configured": "This API endpoint is already configured."
     }
   },
   "options": {
@@ -23,7 +23,10 @@
       "init": {
         "title": "Cookidoo Today options",
         "data": {
-          "scan_interval": "Update interval"
+          "base_url": "Base URL",
+          "today_path": "Today endpoint path",
+          "verify_ssl": "Verify SSL",
+          "timeout": "Timeout (seconds)"
         }
       }
     }
