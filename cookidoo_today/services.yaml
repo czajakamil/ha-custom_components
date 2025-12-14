@@ -1,0 +1,3 @@
+refresh_now:
+  name: Refresh now
+  description: Force refresh Cookidoo Today data right now.
