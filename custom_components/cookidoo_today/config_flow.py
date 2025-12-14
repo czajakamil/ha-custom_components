@@ -1,158 +1,220 @@
+"""Config flow for Cookidoo Today integration."""
+
 from __future__ import annotations
 
+import asyncio
+import logging
 from typing import Any
 
 import aiohttp
 import voluptuous as vol
+from yarl import URL
 
 from homeassistant import config_entries
-from homeassistant.config_entries import ConfigFlowResult, OptionsFlowWithReload
-from homeassistant.core import callback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.selector import selector
 
-from .api import CookidooTodayApi
 from .const import (
     DOMAIN,
     CONF_BASE_URL,
-    CONF_EMAIL,
-    CONF_PASSWORD,
-    CONF_COUNTRY,
-    CONF_REFRESH_MINUTES,
     DEFAULT_BASE_URL,
-    DEFAULT_COUNTRY,
-    DEFAULT_REFRESH_MINUTES,
 )
 
+_LOGGER = logging.getLogger(__name__)
 
-async def _validate_api(hass, base_url: str) -> None:
-    """Sprawdź czy API żyje i odpowiada."""
+# Błędy, które pokażą się w UI (translations możesz dodać później)
+ERROR_CANNOT_CONNECT = "cannot_connect"
+ERROR_INVALID_URL = "invalid_url"
+ERROR_UNKNOWN = "unknown"
+
+
+def _normalize_base_url(value: str) -> str:
+    """Normalize and validate base URL.
+
+    Accepts:
+    - https://host:port
+    - http://host:port
+    - host:port  (dopisze http://)
+    - host       (dopisze http://)
+    """
+    if not isinstance(value, str):
+        raise vol.Invalid("Not a string")
+
+    raw = value.strip()
+    if not raw:
+        raise vol.Invalid("Empty")
+
+    if not raw.startswith(("http://", "https://")):
+        raw = f"http://{raw}"
+
+    raw = raw.rstrip("/")
+
+    try:
+        url = URL(raw)
+    except Exception as err:
+        raise vol.Invalid("Invalid URL") from err
+
+    # Minimalna sensowność
+    if not url.scheme or not url.host:
+        raise vol.Invalid("Invalid URL")
+
+    return str(url)
+
+
+async def _async_validate_input(hass: HomeAssistant, base_url: str) -> None:
+    """Validate the provided base URL by doing a lightweight HTTP request."""
     session = async_get_clientsession(hass)
-    api = CookidooTodayApi(session, base_url)
-    await api.get_today()
 
+    # Tu robimy “ping” na root. Jak masz endpoint /health, podmień path na "/health".
+    test_url = f"{base_url}/"
 
-STEP_USER_SCHEMA = vol.Schema(
-    {
-        vol.Required(CONF_BASE_URL, default=DEFAULT_BASE_URL): selector(
-            {"text": {"type": "text"}}
-        ),
-        vol.Required(CONF_EMAIL): selector({"text": {"type": "email"}}),
-        vol.Required(CONF_PASSWORD): selector({"text": {"type": "password"}}),
-        vol.Optional(CONF_COUNTRY, default=DEFAULT_COUNTRY): selector(
-            {"text": {"type": "text"}}
-        ),
-        vol.Optional(CONF_REFRESH_MINUTES, default=DEFAULT_REFRESH_MINUTES): selector(
-            {
-                "number": {
-                    "min": 1,
-                    "max": 1440,
-                    "mode": "box",
-                    "unit_of_measurement": "min",
-                }
-            }
-        ),
-    }
-)
+    try:
+        async with asyncio.timeout(10):
+            resp = await session.get(test_url)
+            # Nie czytamy body, bo to tylko test łączności
+            await resp.release()
+    except (TimeoutError, aiohttp.ClientError) as err:
+        _LOGGER.debug("Cannot connect to %s: %s", test_url, err)
+        raise ConnectionError from err
 
-OPTIONS_SCHEMA = vol.Schema(
-    {
-        vol.Optional(CONF_COUNTRY, default=DEFAULT_COUNTRY): selector(
-            {"text": {"type": "text"}}
-        ),
-        vol.Optional(CONF_REFRESH_MINUTES, default=DEFAULT_REFRESH_MINUTES): selector(
-            {
-                "number": {
-                    "min": 1,
-                    "max": 1440,
-                    "mode": "box",
-                    "unit_of_measurement": "min",
-                }
-            }
-        ),
-    }
-)
+    # 401/403 niekoniecznie musi być błędem (może chronisz endpoint),
+    # ale 404 też może oznaczać, że URL jest zły. Przyjmijmy prostą logikę:
+    if resp.status >= 500:
+        raise ConnectionError
+    if resp.status == 404:
+        raise ValueError("Not found")
 
 
 class CookidooTodayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Config flow for Cookidoo Today."""
+    """Handle a config flow for Cookidoo Today."""
 
     VERSION = 1
 
-    async def async_step_user(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
+    async def async_step_user(self, user_input: dict[str, Any] | None = None):
+        """Handle the initial step."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            base_url = str(user_input[CONF_BASE_URL]).rstrip("/")
-            email = str(user_input[CONF_EMAIL]).strip()
-            password = str(user_input[CONF_PASSWORD])
+            base_url = user_input[CONF_BASE_URL]
 
-            # Unique ID: per endpoint API (żeby nie dodać dwa razy tego samego)
+            # Unikalność: nie pozwól dodać tej samej instancji dwa razy
             await self.async_set_unique_id(base_url)
             self._abort_if_unique_id_configured()
 
             try:
-                await _validate_api(self.hass, base_url)
-            except aiohttp.ClientResponseError as err:
-                # 401/403 -> traktuj jako invalid_auth (jeśli kiedyś API będzie autoryzowane)
-                if err.status in (401, 403):
-                    errors["base"] = "invalid_auth"
-                else:
-                    errors["base"] = "cannot_connect"
-            except aiohttp.ClientError:
-                errors["base"] = "cannot_connect"
-            except Exception:
-                errors["base"] = "unknown"
+                await _async_validate_input(self.hass, base_url)
+            except ValueError:
+                errors["base"] = ERROR_INVALID_URL
+            except ConnectionError:
+                errors["base"] = ERROR_CANNOT_CONNECT
+            except Exception:  # noqa: BLE001
+                _LOGGER.exception("Unexpected error during config flow")
+                errors["base"] = ERROR_UNKNOWN
             else:
-                # data = wrażliwe (email/hasło), options = ustawienia
-                return self.async_create_entry(
-                    title="Cookidoo Today",
-                    data={
-                        CONF_BASE_URL: base_url,
-                        CONF_EMAIL: email,
-                        CONF_PASSWORD: password,
-                    },
-                    options={
-                        CONF_COUNTRY: user_input.get(CONF_COUNTRY, DEFAULT_COUNTRY),
-                        CONF_REFRESH_MINUTES: int(
-                            user_input.get(CONF_REFRESH_MINUTES, DEFAULT_REFRESH_MINUTES)
-                        ),
-                    },
+                title = URL(base_url).host or "Cookidoo Today"
+                return self.async_create_entry(title=title, data=user_input)
+
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_BASE_URL, default=DEFAULT_BASE_URL): _normalize_base_url,
+            }
+        )
+
+        return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
+
+    async def async_step_reauth(self, user_input: dict[str, Any] | None = None):
+        """Handle reauth (if you ever need it)."""
+        # Zachowujemy referencję do wpisu, który się “psuje”
+        self._reauth_entry = self.hass.config_entries.async_get_entry(
+            self.context["entry_id"]
+        )
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(self, user_input: dict[str, Any] | None = None):
+        """Confirm reauth."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            base_url = user_input[CONF_BASE_URL]
+
+            try:
+                await _async_validate_input(self.hass, base_url)
+            except ValueError:
+                errors["base"] = ERROR_INVALID_URL
+            except ConnectionError:
+                errors["base"] = ERROR_CANNOT_CONNECT
+            except Exception:  # noqa: BLE001
+                _LOGGER.exception("Unexpected error during reauth")
+                errors["base"] = ERROR_UNKNOWN
+            else:
+                # Aktualizujemy data we wpisie (Home Assistant to wspiera)
+                self.hass.config_entries.async_update_entry(
+                    self._reauth_entry,
+                    data={**self._reauth_entry.data, CONF_BASE_URL: base_url},
                 )
+                await self.hass.config_entries.async_reload(self._reauth_entry.entry_id)
+                return self.async_abort(reason="reauth_successful")
+
+        current = (
+            self._reauth_entry.data.get(CONF_BASE_URL, DEFAULT_BASE_URL)
+            if hasattr(self, "_reauth_entry") and self._reauth_entry
+            else DEFAULT_BASE_URL
+        )
+
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_BASE_URL, default=current): _normalize_base_url,
+            }
+        )
 
         return self.async_show_form(
-            step_id="user",
-            data_schema=STEP_USER_SCHEMA,
+            step_id="reauth_confirm",
+            data_schema=schema,
             errors=errors,
         )
 
     @staticmethod
-    @callback
-    def async_get_options_flow(
-        config_entry: config_entries.ConfigEntry,
-    ) -> config_entries.OptionsFlow:
-        return CookidooTodayOptionsFlow()
+    def async_get_options_flow(config_entry: config_entries.ConfigEntry):
+        """Get the options flow handler."""
+        return CookidooTodayOptionsFlowHandler(config_entry)
 
 
-class CookidooTodayOptionsFlow(OptionsFlowWithReload):
-    """Options flow with automatic reload after save."""
+class CookidooTodayOptionsFlowHandler(config_entries.OptionsFlow):
+    """Handle options for Cookidoo Today."""
 
-    async def async_step_init(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
+    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
+        self.config_entry = config_entry
+
+    async def async_step_init(self, user_input: dict[str, Any] | None = None):
+        """Manage the options."""
+        errors: dict[str, str] = {}
+
         if user_input is not None:
-            # Normalizacja typów
-            user_input[CONF_REFRESH_MINUTES] = int(
-                user_input.get(CONF_REFRESH_MINUTES, DEFAULT_REFRESH_MINUTES)
-            )
-            if CONF_COUNTRY in user_input and user_input[CONF_COUNTRY] is not None:
-                user_input[CONF_COUNTRY] = str(user_input[CONF_COUNTRY]).strip()
+            base_url = user_input[CONF_BASE_URL]
 
-            return self.async_create_entry(title="", data=user_input)
+            try:
+                await _async_validate_input(self.hass, base_url)
+            except ValueError:
+                errors["base"] = ERROR_INVALID_URL
+            except ConnectionError:
+                errors["base"] = ERROR_CANNOT_CONNECT
+            except Exception:  # noqa: BLE001
+                _LOGGER.exception("Unexpected error during options")
+                errors["base"] = ERROR_UNKNOWN
+            else:
+                # Options zapisujemy w options, nie w data
+                return self.async_create_entry(title="", data=user_input)
 
-        schema = self.add_suggested_values_to_schema(
-            OPTIONS_SCHEMA, self.config_entry.options
+        current = (
+            self.config_entry.options.get(CONF_BASE_URL)
+            or self.config_entry.data.get(CONF_BASE_URL)
+            or DEFAULT_BASE_URL
         )
-        return self.async_show_form(step_id="init", data_schema=schema)
+
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_BASE_URL, default=current): _normalize_base_url,
+            }
+        )
+
+        return self.async_show_form(step_id="init", data_schema=schema, errors=errors)
