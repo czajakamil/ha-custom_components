@@ -1,0 +1,31 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Cookidoo Today",
+        "description": "Połącz się z API Twojego add-ona Cookidoo Today.",
+        "data": {
+          "base_url": "Base URL",
+          "scan_interval": "Częstotliwość odświeżania"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Nie mogę połączyć się z API.",
+      "unknown": "Nieoczekiwany błąd."
+    },
+    "abort": {
+      "already_configured": "Ten endpoint API jest już skonfigurowany."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Opcje Cookidoo Today",
+        "data": {
+          "scan_interval": "Częstotliwość odświeżania"
+        }
+      }
+    }
+  }
+}
