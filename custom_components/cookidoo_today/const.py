@@ -1,13 +1,9 @@
-from __future__ import annotations
-
-from datetime import timedelta
-from homeassistant.const import Platform
-
 DOMAIN = "cookidoo_today"
 
-CONF_BASE_URL = "base_url"
-CONF_SCAN_INTERVAL = "scan_interval"
+CONF_EMAIL = "email"
+CONF_PASSWORD = "password"
+CONF_COUNTRY = "country"
+CONF_REFRESH_MINUTES = "refresh_minutes"
 
-DEFAULT_SCAN_INTERVAL = timedelta(minutes=5)
-
-PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.CAMERA]
+DEFAULT_COUNTRY = "pl"
+DEFAULT_REFRESH_MINUTES = 15
