@@ -1,0 +1,88 @@
+print_text:
+  name: Print Text
+  description: Drukuje tekst na drukarce termicznej.
+  fields:
+    text:
+      name: Tekst
+      description: Tekst do wydrukowania.
+      required: true
+      example: "Hej z Home Assistant!"
+      selector:
+        text:
+          multiline: true
+    font_size:
+      name: Rozmiar czcionki
+      description: Rozmiar czcionki w pikselach (8–48). Domyślnie 24.
+      example: 24
+      selector:
+        number:
+          min: 8
+          max: 48
+          mode: slider
+
+print_shopping_list:
+  name: Print Shopping List
+  description: Drukuje listę zakupów z checkboxami.
+  fields:
+    items:
+      name: Pozycje
+      description: Lista pozycji do wydrukowania.
+      required: true
+      example: '["Mleko", "Chleb", "Masło"]'
+      selector:
+        object:
+    title:
+      name: Tytuł
+      description: Tytuł listy. Domyślnie "Lista zakupów".
+      example: "Lista zakupów"
+      selector:
+        text:
+
+print_notification:
+  name: Print Notification
+  description: Drukuje kartę powiadomienia z tytułem i treścią.
+  fields:
+    title:
+      name: Tytuł
+      required: true
+      example: "Alarm!"
+      selector:
+        text:
+    message:
+      name: Wiadomość
+      required: true
+      example: "Drzwi otwarte od 10 minut."
+      selector:
+        text:
+          multiline: true
+    source:
+      name: Źródło
+      description: Etykieta nadawcy w stopce. Domyślnie "Home Assistant".
+      example: "Home Assistant"
+      selector:
+        text:
+
+print_qr:
+  name: Print QR Code
+  description: Drukuje kod QR.
+  fields:
+    data:
+      name: Dane
+      description: URL lub tekst do zakodowania w QR.
+      required: true
+      example: "https://home-assistant.io"
+      selector:
+        text:
+    caption:
+      name: Podpis
+      description: Opcjonalny tekst pod kodem QR.
+      selector:
+        text:
+
+scan:
+  name: Scan for Printer
+  description: Skanuje BLE w poszukiwaniu drukarki i łączy się z nią.
+
+flush_queue:
+  name: Flush Print Queue
+  description: Próbuje natychmiast wydrukować wszystkie oczekujące zadania (skanuje BLE jeśli potrzeba).

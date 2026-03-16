@@ -1,0 +1,19 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "CatPrint Setup",
+        "description": "Enter the URL of your CatPrint Flask server.",
+        "data": {
+          "url": "CatPrint Server URL"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot connect to CatPrint server. Check the URL and make sure the server is running."
+    },
+    "abort": {
+      "already_configured": "CatPrint is already configured."
+    }
+  }
+}

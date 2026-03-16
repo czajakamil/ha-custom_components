@@ -1,0 +1,19 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "CatPrint – konfiguracja",
+        "description": "Podaj adres URL serwera CatPrint (Flask).",
+        "data": {
+          "url": "URL serwera CatPrint"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Nie można połączyć z serwerem CatPrint. Sprawdź URL i upewnij się, że serwer działa."
+    },
+    "abort": {
+      "already_configured": "CatPrint jest już skonfigurowany."
+    }
+  }
+}
